@@ -1,0 +1,609 @@
+\documentclass[11pt,a4paper]{article}
+
+% ==================== PACKAGES ====================
+\usepackage[french]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=2.3cm}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, shapes.multipart, calc}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{enumitem}
+
+
+% ==================== STYLES C4 ====================
+\definecolor{c4person}{RGB}{8,79,126}
+\definecolor{c4system}{RGB}{27,132,183}
+\definecolor{c4systemext}{RGB}{140,140,140}
+\definecolor{c4container}{RGB}{68,140,192}
+\definecolor{c4component}{RGB}{133,187,222}
+\definecolor{c4code}{RGB}{200,220,240}
+\definecolor{c4boundary}{RGB}{230,230,230}
+\definecolor{okgreen}{RGB}{40,120,60}
+\definecolor{badred}{RGB}{170,40,40}
+
+\tikzstyle{c4box}=[
+    rectangle, rounded corners=2pt, draw=black!40, text width=3.1cm,
+    align=center, minimum height=1.5cm, font=\scriptsize, drop shadow
+]
+\tikzstyle{c4person}=[c4box, fill=c4person, text=white]
+\tikzstyle{c4system}=[c4box, fill=c4system, text=white]
+\tikzstyle{c4systemext}=[c4box, fill=c4systemext, text=white]
+\tikzstyle{c4container}=[c4box, fill=c4container, text=white, text width=3.0cm]
+\tikzstyle{c4component}=[c4box, fill=c4component, text=black, text width=3.0cm]
+\tikzstyle{c4code}=[rectangle, draw=black!60, fill=c4code, align=left,
+    font=\ttfamily\scriptsize, text width=4.6cm, rounded corners=1pt,
+    inner sep=6pt]
+\tikzstyle{c4arrow}=[-{Stealth[length=2mm]}, thick, draw=black!60]
+\tikzstyle{c4boundary}=[rectangle, draw=black!50, dashed, rounded corners=4pt,
+    inner sep=10pt, fill=c4boundary, fill opacity=0.25]
+
+% ==================== CODE STYLE ====================
+\lstset{
+    basicstyle=\ttfamily\scriptsize,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible,
+    backgroundcolor=\color{gray!5}
+}
+
+\title{\textbf{Rapport d'analyse et de modélisation d'architecture logicielle}\\[4pt]
+\large Système Parallel Collective Tiny Deep Learning (DNN//\(^{*}\)Tcs)\\
+\normalsize Helaoui \& Bahroun (2025) --- Analyse critique et proposition de refonte}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% =====================================================================
+\section{Introduction}
+
+Ce rapport analyse l'architecture logicielle du système
+\emph{Parallel Collective Tiny Deep Learning System for Face and Object
+Reidentification in Uncontrolled Environments} (Helaoui \& Bahroun, 2025),
+noté \textbf{DNN//\(^{*}\)Tcs}, puis propose une architecture alternative
+répondant aux faiblesses identifiées. La démarche suit trois étapes~:
+
+\begin{enumerate}
+    \item analyse détaillée de l'architecture existante (structure, forces,
+    faiblesses) ;
+    \item proposition d'une nouvelle architecture orientée
+    \textbf{microservices} ;
+    \item modélisation de cette architecture selon les quatre niveaux du
+    \textbf{modèle C4} (contexte, conteneurs, composants, code), avec des
+    pistes de validation.
+\end{enumerate}
+
+% =====================================================================
+\section{Analyse de l'architecture existante}
+
+\subsection{Présentation générale}
+
+Le système proposé par les auteurs combine trois niveaux d'exécution pour
+détecter et reconnaître, en temps réel, des visages, émotions, genres et
+objets~:
+
+\begin{itemize}
+    \item \textbf{Client} (\texttt{DNN//\(^{*}\)c}) : version « lite »
+    destinée à un appareil mobile ou des lunettes connectées. Chaque
+    service (visage, émotion, genre, objet) tourne dans un processus
+    séparé, avec un nombre de neurones par couche limité par le matériel ;
+    \item \textbf{Serveur} (\texttt{DNN//\(^{*}\)s}) : version précise,
+    exécutant \texttt{k1} versions de réseaux de neurones profonds et
+    \texttt{k2} versions d'algorithmes de \textit{Machine Learning} en
+    parallèle pour chaque service ;
+    \item \textbf{Objets connectés Tiny} (micro-contrôleurs de type
+    Arduino) : envoient directement identité, position et dimensions des
+    objets réels, sans passer par l'analyse d'image.
+\end{itemize}
+
+Un \textbf{gestionnaire collectif parallèle}
+(\texttt{MSParallelCollectiveManager}), piloté par une approche TinyML,
+fusionne les résultats des trois sources via un opérateur \(\otimes\)
+(structure d'évaluation \(S\) : ensemble ordonné, comparateur \(\leq\),
+opérateur commutatif, associatif et monotone) afin de sélectionner, en
+temps réel, le résultat le plus fiable.
+
+\subsection{Schéma de l'architecture décrite dans l'article}
+
+\begin{figure}[ht]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[node distance=1.2cm and 1.4cm, font=\small]
+
+\node[c4container, fill=c4system] (client) {\textbf{Client mobile}\\
+\footnotesize DNN//\(^*\)c\\
+1 processus / service};
+
+\node[c4container, fill=c4system, right=2.6cm of client] (gw) {\textbf{Gateway}\\
+\footnotesize routage REST};
+
+\node[c4container, fill=c4container, right=2.6cm of gw] (serv) {\textbf{Serveur}\\
+\footnotesize DNN//\(^*\)s\\
+1 processeur = 1 service\\
+(4 cœurs, une seule machine)};
+
+\node[c4container, fill=c4container, below=1.2cm of serv] (mgr) {\textbf{Manager collectif}\\
+\footnotesize MSParallelCollectiveManager\\
+opérateur \(\otimes\) (TML)};
+
+\node[c4systemext, below=1.2cm of client] (tiny) {\textbf{Objets Tiny}\\
+\footnotesize (simulés dans les tests)};
+
+\draw[c4arrow] (client) -- node[above,font=\scriptsize]{requête} (gw);
+\draw[c4arrow] (gw) -- node[above,font=\scriptsize]{dispatch} (serv);
+\draw[c4arrow] (serv) -- (mgr);
+\draw[c4arrow] (tiny) -- node[right,font=\scriptsize]{données brutes} (mgr);
+\draw[c4arrow] (mgr) -- node[right,font=\scriptsize]{alerte} (gw);
+\draw[c4arrow] (gw) -- node[below,font=\scriptsize]{correction} (client);
+
+\end{tikzpicture}}
+\caption{Architecture théorique décrite dans l'article}
+\end{figure}
+
+\noindent \textbf{Point clé de l'analyse} : la validation expérimentale
+(section 6 de l'article) ne teste \textbf{que la partie serveur}, exécutée
+sur un unique ordinateur portable (Dell Vostro 3400, Intel i3-1115G4,
+4 cœurs, 12 Go de RAM) via du \emph{multiprocessing} local --- un
+processeur (cœur) affecté à chaque service. Le client mobile n'est jamais
+implémenté (\og \emph{a lite version of a server version} \fg{}) et les
+objets Tiny/Arduino sont \textbf{simulés}, non connectés physiquement. Le
+schéma client-serveur-Tiny reste donc, pour l'essentiel, une proposition
+théorique.
+
+\subsection{Forces de l'architecture existante}
+
+\begin{itemize}
+    \item \textbf{Réduction des erreurs de classification} : la fusion de
+    plusieurs versions de modèles avec les données de vérité terrain des
+    objets Tiny permet d'atteindre 100~\% de précision sur les jeux de
+    données testés (Tableaux 1 à 3 de l'article) ;
+    \item \textbf{Dimensionnement théorique justifié} : le nombre optimal
+    de processeurs est calculé formellement (théorèmes 1 à 4, lois
+    d'Amdahl et de Brent) en fonction du nombre de neurones par couche ;
+    \item \textbf{Séparation logique lite/précis} : la distinction entre
+    une version cliente allégée et une version serveur plus précise est
+    pertinente pour des contraintes matérielles embarquées ;
+    \item \textbf{Complémentarité multi-modèles} : faire tourner plusieurs
+    architectures (CNN, YOLOv8 dans ses différentes tailles, LBPH) en
+    parallèle et comparer leur confiance limite le risque de dépendre d'un
+    seul modèle défaillant.
+\end{itemize}
+
+\subsection{Faiblesses de l'architecture existante}
+
+\begin{itemize}
+    \item \textbf{Confusion service / processus} : les \og micro-services
+    \fg{} (\texttt{MS*}) sont en réalité des processus systèmes qui
+    s'appellent directement en mémoire partagée (\texttt{RunProcess2(...)})
+    et non des services réseau découplés avec un contrat d'interface ---
+    ils ne sont donc ni déployables ni scalables indépendamment ;
+    \item \textbf{Scalabilité strictement verticale} : le dimensionnement
+    \(P^{*} = f(\text{neurones}, k_1, k_2)\) suppose une seule machine
+    multi-cœurs ; aucune notion de cluster, de répartition de charge ou
+    d'auto-scaling horizontal n'est envisagée ;
+    \item \textbf{Couplage fort du gestionnaire de fusion} : le
+    \texttt{Manager} appelle directement \texttt{VersionOfServce(i)}, sans
+    interface d'abstraction entre le sélecteur et les modèles évalués ;
+    \item \textbf{Absence de tolérance aux pannes} : aucun mécanisme de
+    \emph{retry}, de \emph{circuit breaker} ou de redondance n'est décrit
+    en cas de défaillance d'un service ou d'un objet Tiny ;
+    \item \textbf{Gestion de versions de modèles informelle} : les
+    versions \(k_1\)/\(k_2\) sont lancées \og en dur \fg, sans registre de
+    modèles ni stratégie de déploiement progressif (\emph{canary}) ;
+    \item \textbf{Sécurité et observabilité absentes} : le papier ne
+    mentionne ni authentification, ni traçabilité, ni supervision
+    (métriques, journaux, alerting) ;
+    \item \textbf{Écart entre architecture proposée et architecture
+    validée} : comme relevé ci-dessus, le client mobile et les objets
+    Tiny ne sont jamais réellement testés en conditions distribuées ; les
+    gains de précision démontrés ne prouvent donc rien sur la faisabilité
+    réseau, la latence de communication réelle, ni la résilience d'un
+    déploiement distribué.
+\end{itemize}
+
+% =====================================================================
+\section{Solution proposée}
+
+\subsection{Principes directeurs}
+
+Pour répondre aux faiblesses identifiées, la solution proposée transforme
+l'architecture en une \textbf{architecture microservices} réellement
+distribuée~:
+
+\begin{itemize}
+    \item remplacer le scale-up par cœur/neurone par un
+    \textbf{scale-out par conteneurs} (Kubernetes), chaque service IA étant
+    indépendant, versionné et autoscalable ;
+    \item transformer chaque \texttt{MS*} du papier en \textbf{véritable
+    microservice} exposant une API (REST/gRPC), avec son propre cycle de
+    déploiement ;
+    \item remplacer les appels directs \texttt{RunProcessX()} par une
+    \textbf{communication asynchrone par messages} (Kafka/RabbitMQ) pour le
+    flux objets Tiny \(\rightarrow\) Manager, et des appels REST/gRPC
+    synchrones entre la Gateway et les services ;
+    \item externaliser la logique de fusion (opérateur \(\otimes\)) dans un
+    \textbf{service dédié}, indépendant des modèles qu'il évalue (patron
+    \emph{Strategy}) ;
+    \item introduire un \textbf{Model Registry} pour gérer les versions de
+    modèles et permettre un déploiement progressif.
+\end{itemize}
+
+\subsection{Comparaison synthétique}
+
+\begin{table}[ht]
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}l X X@{}}
+\toprule
+\textbf{Aspect} & \textbf{Architecture du papier} & \textbf{Architecture proposée} \\
+\midrule
+Unité de déploiement & Processus OS sur une seule machine & Conteneur indépendant par service \\
+Scalabilité & Nombre de cœurs / nombre de neurones & Réplicas horizontaux (Kubernetes HPA) \\
+Multi-versions modèle & Processus lancés manuellement ($k_1$, $k_2$) & Model Registry + serveur d'inférence \\
+Fusion des résultats & Fonction \texttt{Choose()} interne au Manager & Service Ensemble dédié, interface \texttt{IFusionStrategy} \\
+Objets Tiny & Appel direct au client/serveur (simulé) & Ingestion événementielle asynchrone (broker) \\
+Tolérance aux pannes & Non spécifiée & Retry, circuit breaker, réplicas \\
+Observabilité & Non spécifiée & Logs centralisés, métriques, traces \\
+\bottomrule
+\end{tabularx}
+\caption{Comparaison entre l'architecture existante et l'architecture proposée}
+\end{table}
+
+% =====================================================================
+\section{Modélisation C4 de la solution proposée}
+
+Le modèle C4 structure la modélisation en quatre niveaux de granularité
+croissante, permettant de valider la cohérence de l'architecture depuis la
+vue macroscopique jusqu'au code.
+
+% ---------------------------------------------------------------------
+\subsection{Niveau 1 --- Diagramme de contexte (vue globale)}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[node distance=2.5cm and 3.0cm, font=\small]
+
+\node[c4person] (user) {\textbf{Utilisateur \\ Véhicule autonome}\\
+Envoie une demande d'analyse d'image ou de vidéo};
+
+\node[c4system, right=of user, text width=3.3cm] (system) {\textbf{Système de Détection Collective}\\
+Détecte objets, visages, genre et émotions \\ fusionne les résultats};
+
+\node[c4systemext, above=of system] (video) {\textbf{ Caméra}\\
+Fournit le flux image/vidéo à analyser};
+
+\node[c4systemext, below=of system] (tiny) {\textbf{Objets connectés}\\
+Transmet identité, position et dimensions des objets réels};
+
+\node[c4systemext, right=of system] (admin) {\textbf{Administrateur}\\
+Supervise, déploie et gère les versions de modèles};
+
+\draw[c4arrow] ([yshift=2pt]user.east) -- node[above,font=\scriptsize]{demande d'analyse} ([yshift=2pt]system.west);
+\draw[c4arrow] ([yshift=-8pt]system.west) -- node[below,font=\scriptsize]{alerte / décision} ([yshift=-8pt]user.east);
+\draw[c4arrow] (video) -- node[right,font=\scriptsize]{flux vidéo} (system);
+\draw[c4arrow] (tiny) -- node[right,font=\scriptsize]{données objets} (system);
+\draw[c4arrow] (system) -- node[above,font=\scriptsize]{supervision} (admin);
+
+\end{tikzpicture}
+\caption{Niveau 1 --- Diagramme de contexte du système}
+\end{figure}
+
+Le système reçoit en entrée un flux vidéo et,
+en parallèle, des données directes issues d'objets connectés qui servent de
+vérité terrain pour valider ou corriger les détections. Il restitue à
+l'utilisateur une décision consolidée (alerte).
+
+% ---------------------------------------------------------------------
+\subsection{Niveau 2 --- Diagramme de conteneurs (package)}
+
+
+\begin{figure}[ht]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    font=\small,
+    node distance=1.2cm and 1.0cm,
+    c4container/.style={draw, rectangle, rounded corners, align=center, inner sep=6pt, fill=blue!5, draw=blue!40, minimum width=2.8cm, minimum height=1.2cm},
+    c4arrow/.style={->, >=stealth, thick, draw=black!70}
+]
+
+% ============================================================
+% 1. CLIENT & GATEWAY
+% ============================================================
+
+\node[c4container] (client) {
+    \textbf{Client Mobile / Edge}\\
+    \footnotesize [TFLite / TinyML]\\
+    \scriptsize Version allégée locale
+};
+
+\node[c4container, right=3.5cm of client] (gw) {
+    \textbf{API Gateway}\\
+    \footnotesize [Node.js / Nginx]\\
+    \scriptsize Authentification, routage, rate-limiting
+};
+
+% ============================================================
+% 2. SERVICES IA (Alignés horizontalement)
+% ============================================================
+
+\node[c4container, below=2.5cm of gw, xshift=-4.5cm] (face) {
+    \textbf{Face Recognition}\\
+    \footnotesize [Python / FastAPI]
+};
+
+\node[c4container, right=0.6cm of face] (obj) {
+    \textbf{Object Detection}\\
+    \footnotesize [Python / FastAPI]
+};
+
+\node[c4container, right=0.6cm of obj] (gender) {
+    \textbf{Gender Detection}\\
+    \footnotesize [Python / FastAPI]
+};
+
+\node[c4container, right=0.6cm of gender] (emo) {
+    \textbf{Emotion Recognition}\\
+    \footnotesize [Python / FastAPI]
+};
+
+% ============================================================
+% 3. ENSEMBLE (Centré sous les 4 services)
+% ============================================================
+
+% On positionne Ensemble exactement au centre entre "obj" et "gender"
+\path (obj.south) -- (gender.south) coordinate[pos=0.5] (mid_services);
+\node[c4container, below=2.0cm of mid_services] (ens) {
+    \textbf{Ensemble / Décision}\\
+    \footnotesize [Python]\\
+    \scriptsize Opérateur $\otimes$
+};
+
+% ============================================================
+% 4. INFRASTRUCTURE & IOT (À gauche)
+% ============================================================
+
+\node[c4container, below=1.8cm of client] (registry) {
+    \textbf{Model Registry}\\
+    \footnotesize [MLflow]
+};
+
+\node[c4container, below=1.0cm of registry] (broker) {
+    \textbf{Broker événementiel}\\
+    \footnotesize [Kafka / RabbitMQ]
+};
+
+\node[c4container, below=1.0cm of broker] (iot) {
+    \textbf{Service d'ingestion IoT}\\
+    \footnotesize [MQTT Bridge]
+};
+
+% ============================================================
+% FLÈCHES ET CONNEXIONS
+% ============================================================
+
+% Client <-> Gateway
+\draw[c4arrow] (client.east) -- node[above, font=\scriptsize]{REST / gRPC} (gw.west);
+
+% Gateway -> Services IA (Bus horizontal de distribution)
+\draw[c4arrow] (gw.south) -- ++(0,-0.8) coordinate (gw_bus) -| (face.north);
+\draw[c4arrow] (gw_bus) -| (obj.north);
+\draw[c4arrow] (gw_bus) -| (gender.north);
+\draw[c4arrow] (gw_bus) -| (emo.north);
+
+% Services IA -> Ensemble
+\draw[c4arrow] (face.south) |- (ens.west);
+\draw[c4arrow] (obj.south) -- (obj.south |- ens.north);
+\draw[c4arrow] (gender.south) -- (gender.south |- ens.north);
+\draw[c4arrow] (emo.south) |- (ens.east);
+
+% Ensemble -> Gateway (Retour du résultat)
+\draw[c4arrow] (ens.east) -- ++(2.2,0) |- node[pos=0.25, right, font=\scriptsize]{Résultat} (gw.east);
+
+% Model Registry -> Gateway & Services IA
+\draw[c4arrow] (gw.west) -- ++(-2.9,0) |- (registry.north);
+\draw[c4arrow] (registry.east) -- ++(0.3,0) coordinate (reg_bus) |- (face.west);
+
+% IoT -> Broker -> Ensemble
+\draw[c4arrow] (iot.east) --  ++(0.5,0) |- (broker.east) ;
+\draw[c4arrow] (broker.east) -- ++(1.5,0.5) |- (ens.south);
+
+\end{tikzpicture}%
+}
+\caption{Niveau 2 --- Diagramme de conteneurs de l'architecture microservices proposée}
+\label{fig:conteneurs-architecture}
+\end{figure}
+
+
+
+Chaque service métier (visage, objet, genre,
+émotion) est un conteneur indépendant, déployable et scalable
+séparément. Le Model Registry centralise les versions de modèles
+(remplace les processus \(k_1\)/\(k_2\) lancés en dur dans l'article). Le
+broker événementiel découple les objets Tiny du reste du système.
+\newpage
+% ---------------------------------------------------------------------
+\subsection{Niveau 3 --- Diagramme de composants}
+
+\begin{figure}[ht]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=1.1cm and 1.6cm, font=\small]
+
+\begin{scope}[on background layer]
+\node[c4boundary, fit={(-3.5,-7.4) (8.6,0.9)}, label={[font=\footnotesize\itshape]above left:Conteneur : Service Face Recognition}] {};
+\end{scope}
+
+\node[c4component] (ctrl) at (0,0) {\textbf{Contrôleur REST}\\
+\footnotesize [FastAPI Router]\\
+Expose \texttt{/recognize}};
+
+\node[c4component, below=of ctrl] (loader) {\textbf{Gestionnaire de modèles}\\
+\footnotesize [ModelLoader]\\
+Charge les versions depuis le Model Registry};
+
+\node[c4component, below=of loader] (infer) {\textbf{Moteur d'inférence}\\
+\footnotesize [InferenceEngine]\\
+Exécute LBPH / CNN en parallèle};
+
+\node[c4component, right=2.6cm of ctrl] (conf) {\textbf{Évaluateur de confiance}\\
+\footnotesize [ConfidenceEvaluator]\\
+Score de confiance par version};
+
+\node[c4component, right=0.8cm of loader] (dataset) {\textbf{Gestionnaire de dataset dynamique}\\
+\footnotesize [DynamicDataset\\Manager]\\
+Mise à jour temps réel};
+
+\node[c4component, right=2.6cm of infer] (pub) {\textbf{Publieur de résultats}\\
+\footnotesize [ResultPublisher]\\
+Envoi au Service Ensemble};
+
+\draw[c4arrow] (ctrl) -- (loader);
+\draw[c4arrow] (loader) -- (infer);
+\draw[c4arrow] (infer) -- (pub);
+\draw[c4arrow] (pub) -- (conf);
+\draw[c4arrow] (infer) -- (dataset);
+\draw[c4arrow] (dataset) -- (loader);
+\draw[c4arrow] (ctrl) -- (conf);
+
+\end{tikzpicture}}
+\caption{Niveau 3 --- Diagramme de composants du service Face Recognition}
+\end{figure}
+
+Le Gestionnaire de dataset dynamique reprend l'idée du papier original (\texttt{MSFaceDynamicDataSet} / \texttt{MSFaceDynamicTraining})  mais en composant clairement isolé, testable indépendamment du moteur d'inférence.
+\newpage
+
+% ---------------------------------------------------------------------
+\subsection{Niveau 4 --- Diagramme de code}
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[node distance=1.2cm and 1cm, font=\small]
+
+\node[c4code, text width=5.4cm] (iface) {
+\textbf{\ttfamily <<interface>>}\\
+\textbf{\ttfamily IFusionStrategy}\\[2pt]
+\rule{5.2cm}{0.3pt}\\
++ combine(resultA, resultB): Result
+};
+
+\node[c4code, below left=1.6cm and -1.0cm of iface, text width=5.4cm] (conf) {
+\textbf{\ttfamily ConfidenceBasedFusion}\\[2pt]
+\rule{5.2cm}{0.3pt}\\
+- seuil: float\\
+\rule{5.2cm}{0.3pt}\\
++ combine(resultA, resultB): Result
+};
+
+\node[c4code, below right=1.6cm and -1.0cm of iface, text width=5.4cm] (tiny) {
+\textbf{\ttfamily TinyValidatedFusion}\\[2pt]
+\rule{5.2cm}{0.3pt}\\
+- tinyData: TinyObjectData\\
+\rule{5.2cm}{0.3pt}\\
++ combine(resultA, resultB): Result
+};
+
+\node[c4code, below=4cm of iface, text width=5.8cm] (ens) {
+\textbf{\ttfamily EnsembleService}\\[2pt]
+\rule{5.6cm}{0.3pt}\\
+- strategy: IFusionStrategy\\
+\rule{5.6cm}{0.3pt}\\
++ setStrategy(s: IFusionStrategy): void\\
++ evaluate(results: List\textless{}Result\textgreater{}): Result
+};
+
+\draw[c4arrow, dashed] (conf) -- node[above,sloped,font=\scriptsize]{implémente} (iface);
+\draw[c4arrow, dashed] (tiny) -- node[above,sloped,font=\scriptsize]{implémente} (iface);
+\draw[c4arrow] (ens.north) -- node[right,font=\scriptsize]{utilise} (iface.south);
+
+\end{tikzpicture}
+\caption{Niveau 4 --- Diagramme de classes : patron Strategy pour l'opérateur de fusion \(\otimes\)}
+\end{figure}
+\noindent \textbf{Extrait de code (Python) correspondant} :
+
+\begin{lstlisting}[language=Python]
+from abc import ABC, abstractmethod
+
+class IFusionStrategy(ABC):
+    @abstractmethod
+    def combine(self, result_a, result_b):
+        """Implemente l'operateur d'evaluation S (associatif, monotone)."""
+        raise NotImplementedError
+
+
+class ConfidenceBasedFusion(IFusionStrategy):
+    def __init__(self, seuil: float = 0.6):
+        self.seuil = seuil
+
+    def combine(self, result_a, result_b):
+        return result_a if result_a.confidence >= result_b.confidence else result_b
+
+
+class TinyValidatedFusion(IFusionStrategy):
+    def __init__(self, tiny_data):
+        self.tiny_data = tiny_data
+
+    def combine(self, result_a, result_b):
+        # Priorite absolue a la donnee Tiny (verite terrain)
+        if self.tiny_data.is_available():
+            return self.tiny_data.to_result()
+        return result_a if result_a.confidence >= result_b.confidence else result_b
+
+
+class EnsembleService:
+    def __init__(self, strategy: IFusionStrategy):
+        self.strategy = strategy
+
+    def set_strategy(self, strategy: IFusionStrategy):
+        self.strategy = strategy
+
+    def evaluate(self, results: list):
+        fused = results[0]
+        for r in results[1:]:
+            fused = self.strategy.combine(fused, r)
+        return fused
+\end{lstlisting}
+
+Ce patron permet de changer la stratégie de
+fusion (basée sur la confiance, ou priorisant la donnée Tiny) sans modifier
+le \texttt{EnsembleService}, contrairement à la fonction \texttt{Choose()}
+codée en dur dans l'algorithme \texttt{MSParallelCollectiveManager} de
+l'article original.
+% =====================================================================
+\section{Pistes de validation de l'architecture proposée}
+
+\begin{itemize}
+    \item \textbf{Scénarios de qualité (style ATAM)} : rejouer les
+    scénarios de l'article (latence temps réel, précision) comme critères
+    d'acceptation de l'architecture cible.
+    \item \textbf{Prototype + benchmark comparatif} : reproduire les
+    mesures des Tableaux 1 à 3 de l'article (taux de détection, faux
+    positifs) sur la nouvelle architecture pour vérifier qu'elle conserve
+    les gains de précision du système Tiny d'origine.
+    \item \textbf{Tests de contrat} (Pact) entre la Gateway et chaque
+    microservice, pour garantir la stabilité des interfaces définies au
+    niveau conteneur.
+    \item \textbf{Tests de charge et de chaos} (Locust, Chaos Mesh) pour
+    valider la scalabilité horizontale et la résilience, absentes du
+    système original.
+    \item \textbf{Revue croisée des diagrammes} : présenter les niveaux
+    Contexte/Conteneurs aux parties prenantes métier, Composants/Code aux
+    développeurs, et vérifier la cohérence verticale entre les niveaux.
+\end{itemize}
+
+\section{Conclusion}
+En conclusion, l'utilisation du modèle C4 a permis de transformer le prototype initial en une architecture microservices claire, solide et scalable. En découpant le système en services autonomes et découpés, l'application devient plus simple à maintenir et à faire évoluer. Ce découplage apporte une scalabilité horizontale, une gestion formalisée des versions de modèles ainsi que des mécanismes de tolérance aux pannes qui faisaient défaut dans la proposition initiale. Enfin, l'intégration de patrons de conception comme le modèle Strategy rend le système flexible, lui permettant d'adapter facilement ses règles de fusion et d'entraînement sans tout dérégler.
+
+\end{document}
