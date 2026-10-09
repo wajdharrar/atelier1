@@ -7,7 +7,7 @@
 \usepackage{geometry}
 \geometry{margin=2.3cm}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, shapes.multipart, calc}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds, shapes.multipart, calc, shadow}
 \usepackage{caption}
 \usepackage{xcolor}
 \usepackage{hyperref}
@@ -78,10 +78,11 @@ répondant aux faiblesses identifiées. La démarche suit trois étapes~:
 \begin{enumerate}
     \item analyse détaillée de l'architecture existante (structure, forces,
     faiblesses) ;
-    \item proposition d'une nouvelle architecture orientée
-    \textbf{microservices} ;
+    \item proposition d'une nouvelle architecture basée sur les principes des
+    \textbf{systèmes répartis} et des \textbf{microservices} ;
     \item modélisation de cette architecture selon les quatre niveaux du
-    \textbf{modèle C4} (contexte, conteneurs, composants, code), avec des
+    \textbf{modèle C4} (contexte, conteneurs, composants, code), intégrant la
+    gestion de l'hétérogénéité matérielle sans OS et la synchronisation temporelle, avec des
     pistes de validation.
 \end{enumerate}
 
@@ -196,48 +197,34 @@ théorique.
     \item \textbf{Couplage fort du gestionnaire de fusion} : le
     \texttt{Manager} appelle directement \texttt{VersionOfServce(i)}, sans
     interface d'abstraction entre le sélecteur et les modèles évalués ;
-    \item \textbf{Absence de tolérance aux pannes} : aucun mécanisme de
-    \emph{retry}, de \emph{circuit breaker} ou de redondance n'est décrit
+    \item \textbf{Absence de tolérance aux pannes et de synchronisation} : aucun mécanisme de
+    \emph{retry}, de synchronisation d'horloge réseau, ou de redondance n'est décrit
     en cas de défaillance d'un service ou d'un objet Tiny ;
     \item \textbf{Gestion de versions de modèles informelle} : les
     versions \(k_1\)/\(k_2\) sont lancées \og en dur \fg, sans registre de
     modèles ni stratégie de déploiement progressif (\emph{canary}) ;
     \item \textbf{Sécurité et observabilité absentes} : le papier ne
-    mentionne ni authentification, ni traçabilité, ni supervision
-    (métriques, journaux, alerting) ;
+    mentionne ni authentification, ni traçabilité, ni supervision ;
     \item \textbf{Écart entre architecture proposée et architecture
     validée} : comme relevé ci-dessus, le client mobile et les objets
-    Tiny ne sont jamais réellement testés en conditions distribuées ; les
-    gains de précision démontrés ne prouvent donc rien sur la faisabilité
-    réseau, la latence de communication réelle, ni la résilience d'un
-    déploiement distribué.
+    Tiny ne sont jamais réellement testés en conditions distribuées.
 \end{itemize}
 
 % =====================================================================
 \section{Solution proposée}
 
-\subsection{Principes directeurs}
+\subsection{Principes directeurs et justification du système réparti}
 
-Pour répondre aux faiblesses identifiées, la solution proposée transforme
-l'architecture en une \textbf{architecture microservices} réellement
-distribuée~:
+Pour résoudre les faiblesses identifiées, nous proposons de repenser l'architecture sous la forme d'un \textbf{système réparti hétérogène}. 
 
+\noindent \textbf{Justification de la refonte distribuée :} Les objets Tiny (microcontrôleurs de type Arduino, STM32, ESP32) se caractérisent par l'\textbf{absence totale de système d'exploitation classique (Bare-Metal)}. Ils n'offrent ni gestionnaire de processus, ni mémoire virtuelle, ni pile d'abstraction logicielle haut niveau. Historiquement, l'introduction des couches d'OS dans les architectures informatiques visait à faciliter la communication inter-processus (IPC) entre l'utilisateur et la machine, ainsi qu'entre deux machines distantes. 
+
+En l'absence d'OS sur les nœuds Tiny, nous devons revenir aux fondamentaux des \textbf{systèmes répartis} :
 \begin{itemize}
-    \item remplacer le scale-up par cœur/neurone par un
-    \textbf{scale-out par conteneurs} (Kubernetes), chaque service IA étant
-    indépendant, versionné et autoscalable ;
-    \item transformer chaque \texttt{MS*} du papier en \textbf{véritable
-    microservice} exposant une API (REST/gRPC), avec son propre cycle de
-    déploiement ;
-    \item remplacer les appels directs \texttt{RunProcessX()} par une
-    \textbf{communication asynchrone par messages} (Kafka/RabbitMQ) pour le
-    flux objets Tiny \(\rightarrow\) Manager, et des appels REST/gRPC
-    synchrones entre la Gateway et les services ;
-    \item externaliser la logique de fusion (opérateur \(\otimes\)) dans un
-    \textbf{service dédié}, indépendant des modèles qu'il évalue (patron
-    \emph{Strategy}) ;
-    \item introduire un \textbf{Model Registry} pour gérer les versions de
-    modèles et permettre un déploiement progressif.
+    \item \textbf{Couche de middleware distribué (Abstraction matériel/OS)} : Mettre en place un protocole d'interopérabilité (MQTT / CoAP / gRPC-Lite) qui masque l'absence d'OS des objets Tiny et uniformise le passage de messages entre les nœuds nus (Bare-metal) et les nœuds dotés d'OS (serveurs Cloud/Edge) ;
+    \item \textbf{Services indépendants et scalabilité horizontale} : Remplacer le scale-up mono-machine par un découplage en microservices conteneurisés (Kubernetes) sur la partie serveur ;
+    \item \textbf{Communication asynchrone et tolérante aux pannes} : Utiliser un broker de messages (Kafka/RabbitMQ) pour absorber la volatilité et la latence réseau des nœuds Tiny sans bloquer le serveur ;
+    \item \textbf{Synchronisation temporelle distribuée} : Introduire un composant de synchronisation d'horloge (horloges logiques ou vectorielles) pour aligner temporellement les données transmises par les objets Tiny avec les flux d'images traités par le serveur.
 \end{itemize}
 
 \subsection{Comparaison synthétique}
@@ -247,15 +234,15 @@ distribuée~:
 \small
 \begin{tabularx}{\textwidth}{@{}l X X@{}}
 \toprule
-\textbf{Aspect} & \textbf{Architecture du papier} & \textbf{Architecture proposée} \\
+\textbf{Aspect} & \textbf{Architecture du papier} & \textbf{Architecture proposée (Système Réparti)} \\
 \midrule
-Unité de déploiement & Processus OS sur une seule machine & Conteneur indépendant par service \\
-Scalabilité & Nombre de cœurs / nombre de neurones & Réplicas horizontaux (Kubernetes HPA) \\
+Unité de déploiement & Processus OS sur une seule machine & Microservices (Server) \& Bare-metal Firmware (Tiny) \\
+Gestion de l'hétérogénéité & Inexistante (suppose un OS partout) & Middleware d'abstraction distribué (MQTT/gRPC) \\
+Scalabilité & Nombre de cœurs / neurones (scale-up) & Réplicas horizontaux (Kubernetes HPA) \\
 Multi-versions modèle & Processus lancés manuellement ($k_1$, $k_2$) & Model Registry + serveur d'inférence \\
-Fusion des résultats & Fonction \texttt{Choose()} interne au Manager & Service Ensemble dédié, interface \texttt{IFusionStrategy} \\
-Objets Tiny & Appel direct au client/serveur (simulé) & Ingestion événementielle asynchrone (broker) \\
-Tolérance aux pannes & Non spécifiée & Retry, circuit breaker, réplicas \\
-Observabilité & Non spécifiée & Logs centralisés, métriques, traces \\
+Fusion \& Synchronisation & Fonction \texttt{Choose()} sans repère temporel & Service Ensemble + composant Horloge Distribuée \\
+Objets Tiny & Appel direct simulé & Ingestion événementielle asynchrone (broker) \\
+Tolérance aux pannes & Non spécifiée & Retry, circuit breaker, horloges logiques, réplicas \\
 \bottomrule
 \end{tabularx}
 \caption{Comparaison entre l'architecture existante et l'architecture proposée}
@@ -265,49 +252,45 @@ Observabilité & Non spécifiée & Logs centralisés, métriques, traces \\
 \section{Modélisation C4 de la solution proposée}
 
 Le modèle C4 structure la modélisation en quatre niveaux de granularité
-croissante, permettant de valider la cohérence de l'architecture depuis la
-vue macroscopique jusqu'au code.
+croissante, permettant de valider la cohérence de l'architecture.
 
 % ---------------------------------------------------------------------
-\subsection{Niveau 1 --- Diagramme de contexte (vue globale)}
-
+\subsection{Niveau 1 --- Diagramme de contexte (vue système réparti)}
+\clearpage
 \begin{figure}[ht]
 \centering
-\begin{tikzpicture}[node distance=2.5cm and 3.0cm, font=\small]
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[node distance=2.2cm and 2.8cm, font=\small]
 
-\node[c4person] (user) {\textbf{Utilisateur \\ Véhicule autonome}\\
-Envoie une demande d'analyse d'image ou de vidéo};
+\node[c4person] (user) {\textbf{Utilisateur / Véhicule Autonome}\\
+Envoie des demandes d'analyse et reçoit des alertes temps réel};
 
-\node[c4system, right=of user, text width=3.3cm] (system) {\textbf{Système de Détection Collective}\\
-Détecte objets, visages, genre et émotions \\ fusionne les résultats};
+\node[c4system, right=of user, text width=3.6cm] (system) {\textbf{Système Réparti de Détection Collective}\\
+Middleware distribué, fusion multi-source, inférence et orchestration};
 
-\node[c4systemext, above=of system] (video) {\textbf{ Caméra}\\
-Fournit le flux image/vidéo à analyser};
+\node[c4systemext, above=1.8cm of system] (video) {\textbf{Caméra / Nœud Edge}\\
+Fournit le flux image/vidéo (OS Edge/Linux)};
 
-\node[c4systemext, below=of system] (tiny) {\textbf{Objets connectés}\\
-Transmet identité, position et dimensions des objets réels};
+\node[c4systemext, below=1.8cm of system] (tiny) {\textbf{Objets Connectés Tiny}\\
+Microcontrôleurs sans OS (Bare-metal). Transmettent la vérité terrain};
 
 \node[c4systemext, right=of system] (admin) {\textbf{Administrateur}\\
-Supervise, déploie et gère les versions de modèles};
+Supervise le cluster distribué et gère le déploiement des modèles};
 
-\draw[c4arrow] ([yshift=2pt]user.east) -- node[above,font=\scriptsize]{demande d'analyse} ([yshift=2pt]system.west);
-\draw[c4arrow] ([yshift=-8pt]system.west) -- node[below,font=\scriptsize]{alerte / décision} ([yshift=-8pt]user.east);
-\draw[c4arrow] (video) -- node[right,font=\scriptsize]{flux vidéo} (system);
-\draw[c4arrow] (tiny) -- node[right,font=\scriptsize]{données objets} (system);
-\draw[c4arrow] (system) -- node[above,font=\scriptsize]{supervision} (admin);
+\draw[c4arrow] ([yshift=3pt]user.east) -- node[above,font=\scriptsize]{requêtes} ([yshift=3pt]system.west);
+\draw[c4arrow] ([yshift=-3pt]system.west) -- node[below,font=\scriptsize]{décisions / alertes} ([yshift=-3pt]user.east);
+\draw[c4arrow] (video) -- node[right,font=\scriptsize]{flux vidéo (RTSP/gRPC)} (system);
+\draw[c4arrow] (tiny) -- node[right,font=\scriptsize]{données brutes (CoAP/MQTT)} (system);
+\draw[c4arrow] (system) -- node[above,font=\scriptsize]{métriques / logs} (admin);
 
-\end{tikzpicture}
-\caption{Niveau 1 --- Diagramme de contexte du système}
+\end{tikzpicture}}
+\caption{Niveau 1 --- Diagramme de contexte du système réparti hétérogène}
 \end{figure}
 
-Le système reçoit en entrée un flux vidéo et,
-en parallèle, des données directes issues d'objets connectés qui servent de
-vérité terrain pour valider ou corriger les détections. Il restitue à
-l'utilisateur une décision consolidée (alerte).
+Le système réparti fait le pont entre les équipements avec OS (Caméras Edge, Serveurs) et les objets Tiny sans OS. Il unifie la communication et assure la cohérence temporelle globale.
 
 % ---------------------------------------------------------------------
 \subsection{Niveau 2 --- Diagramme de conteneurs (package)}
-
 
 \begin{figure}[ht]
 \centering
@@ -325,14 +308,14 @@ l'utilisateur une décision consolidée (alerte).
 
 \node[c4container] (client) {
     \textbf{Client Mobile / Edge}\\
-    \footnotesize [TFLite / TinyML]\\
-    \scriptsize Version allégée locale
+    \footnotesize [TFLite / OS Mobile]\\
+    \scriptsize Inférence locale lite
 };
 
 \node[c4container, right=3.5cm of client] (gw) {
     \textbf{API Gateway}\\
     \footnotesize [Node.js / Nginx]\\
-    \scriptsize Authentification, routage, rate-limiting
+    \scriptsize Routage, Auth, Rate-limit
 };
 
 % ============================================================
@@ -363,12 +346,11 @@ l'utilisateur une décision consolidée (alerte).
 % 3. ENSEMBLE (Centré sous les 4 services)
 % ============================================================
 
-% On positionne Ensemble exactement au centre entre "obj" et "gender"
 \path (obj.south) -- (gender.south) coordinate[pos=0.5] (mid_services);
 \node[c4container, below=2.0cm of mid_services] (ens) {
     \textbf{Ensemble / Décision}\\
-    \footnotesize [Python]\\
-    \scriptsize Opérateur $\otimes$
+    \footnotesize [Python / Distributed Sync]\\
+    \scriptsize Opérateur $\otimes$ + Horloge Logique
 };
 
 % ============================================================
@@ -387,88 +369,75 @@ l'utilisateur une décision consolidée (alerte).
 
 \node[c4container, below=1.0cm of broker] (iot) {
     \textbf{Service d'ingestion IoT}\\
-    \footnotesize [MQTT Bridge]
+    \footnotesize [MQTT / CoAP Bridge]\\
+    \scriptsize Interface Bare-metal (No-OS)
 };
 
 % ============================================================
 % FLÈCHES ET CONNEXIONS
 % ============================================================
 
-% Client <-> Gateway
 \draw[c4arrow] (client.east) -- node[above, font=\scriptsize]{REST / gRPC} (gw.west);
 
-% Gateway -> Services IA (Bus horizontal de distribution)
 \draw[c4arrow] (gw.south) -- ++(0,-0.8) coordinate (gw_bus) -| (face.north);
 \draw[c4arrow] (gw_bus) -| (obj.north);
 \draw[c4arrow] (gw_bus) -| (gender.north);
 \draw[c4arrow] (gw_bus) -| (emo.north);
 
-% Services IA -> Ensemble
 \draw[c4arrow] (face.south) |- (ens.west);
 \draw[c4arrow] (obj.south) -- (obj.south |- ens.north);
 \draw[c4arrow] (gender.south) -- (gender.south |- ens.north);
 \draw[c4arrow] (emo.south) |- (ens.east);
 
-% Ensemble -> Gateway (Retour du résultat)
 \draw[c4arrow] (ens.east) -- ++(2.2,0) |- node[pos=0.25, right, font=\scriptsize]{Résultat} (gw.east);
 
-% Model Registry -> Gateway & Services IA
 \draw[c4arrow] (gw.west) -- ++(-2.9,0) |- (registry.north);
 \draw[c4arrow] (registry.east) -- ++(0.3,0) coordinate (reg_bus) |- (face.west);
 
-% IoT -> Broker -> Ensemble
-\draw[c4arrow] (iot.east) --  ++(0.5,0) |- (broker.east) ;
+\draw[c4arrow] (iot.east) -- ++(0.5,0) |- (broker.east) ;
 \draw[c4arrow] (broker.east) -- ++(1.5,0.5) |- (ens.south);
 
 \end{tikzpicture}%
 }
-\caption{Niveau 2 --- Diagramme de conteneurs de l'architecture microservices proposée}
+\caption{Niveau 2 --- Diagramme de conteneurs de l'architecture répartie proposée}
 \label{fig:conteneurs-architecture}
 \end{figure}
 
-
-
-Chaque service métier (visage, objet, genre,
-émotion) est un conteneur indépendant, déployable et scalable
-séparément. Le Model Registry centralise les versions de modèles
-(remplace les processus \(k_1\)/\(k_2\) lancés en dur dans l'article). Le
-broker événementiel découple les objets Tiny du reste du système.
-\newpage
 % ---------------------------------------------------------------------
 \subsection{Niveau 3 --- Diagramme de composants}
-
+\clearpage
 \begin{figure}[ht]
 \centering
-\resizebox{\textwidth}{!}{%
+\resizebox{0.92\textwidth}{!}{%
 \begin{tikzpicture}[node distance=1.1cm and 1.6cm, font=\small]
 
 \begin{scope}[on background layer]
 \node[c4boundary, fit={(-3.5,-7.4) (8.6,0.9)}, label={[font=\footnotesize\itshape]above left:Conteneur : Service Face Recognition}] {};
 \end{scope}
 
-\node[c4component] (ctrl) at (0,0) {\textbf{Contrôleur REST}\\
+\node[c4component] (ctrl) at (0,0) {\textbf{Contrôleur REST/gRPC}\\
 \footnotesize [FastAPI Router]\\
 Expose \texttt{/recognize}};
 
 \node[c4component, below=of ctrl] (loader) {\textbf{Gestionnaire de modèles}\\
 \footnotesize [ModelLoader]\\
-Charge les versions depuis le Model Registry};
+Charge versions via Model Registry};
 
 \node[c4component, below=of loader] (infer) {\textbf{Moteur d'inférence}\\
 \footnotesize [InferenceEngine]\\
-Exécute LBPH / CNN en parallèle};
+Exécute LBPH / CNN};
 
 \node[c4component, right=2.6cm of ctrl] (conf) {\textbf{Évaluateur de confiance}\\
 \footnotesize [ConfidenceEvaluator]\\
-Score de confiance par version};
+Calcul du score de fiabilité};
 
 \node[c4component, right=0.8cm of loader] (dataset) {\textbf{Gestionnaire de dataset dynamique}\\
-\footnotesize [DynamicDataset\\Manager]\\
-Mise à jour temps réel};
+\footnotesize [DynamicDatasetManager]\\
+Mise à jour continu};
 
 \node[c4component, right=2.6cm of infer] (pub) {\textbf{Publieur de résultats}\\
 \footnotesize [ResultPublisher]\\
-Envoi au Service Ensemble};
+Horodatage \& Envoi au Service Ensemble};
 
 \draw[c4arrow] (ctrl) -- (loader);
 \draw[c4arrow] (loader) -- (infer);
@@ -482,128 +451,148 @@ Envoi au Service Ensemble};
 \caption{Niveau 3 --- Diagramme de composants du service Face Recognition}
 \end{figure}
 
-Le Gestionnaire de dataset dynamique reprend l'idée du papier original (\texttt{MSFaceDynamicDataSet} / \texttt{MSFaceDynamicTraining})  mais en composant clairement isolé, testable indépendamment du moteur d'inférence.
-\newpage
-
 % ---------------------------------------------------------------------
-\subsection{Niveau 4 --- Diagramme de code}
+\subsection{Niveau 4 --- Diagramme de code et synchronisation distribuée}
+
+Dans un système réparti où les objets Tiny n'ont pas d'OS ni d'horloge temps réel (RTC) synchronisée avec le serveur, la simple comparaison de timestamps physiques est impossible. Nous introduisons un composant de \textbf{Synchronisation par Horloge Logique / Vectorielle (\texttt{VectorClockManager})} pour aligner temporellement les messages de vérité terrain des objets Tiny avec les prédictions des modèles IA.
 
 \begin{figure}[ht]
 \centering
-\begin{tikzpicture}[node distance=1.2cm and 1cm, font=\small]
+\resizebox{0.95\textwidth}{!}{%
+\begin{tikzpicture}[font=\small]
 
-\node[c4code, text width=5.4cm] (iface) {
+\node[c4code, text width=5.6cm] (iface) at (0,0) {
 \textbf{\ttfamily <<interface>>}\\
 \textbf{\ttfamily IFusionStrategy}\\[2pt]
-\rule{5.2cm}{0.3pt}\\
+\rule{5.4cm}{0.3pt}\\
 + combine(resultA, resultB): Result
 };
 
-\node[c4code, below left=1.6cm and -1.0cm of iface, text width=5.4cm] (conf) {
+\node[c4code, text width=5.6cm] (clock) at (7.2,0) {
+\textbf{\ttfamily VectorClockManager}\\[2pt]
+\rule{5.4cm}{0.3pt}\\
+- clock: Dict[str, int]\\[2pt]
+\rule{5.4cm}{0.3pt}\\
++ increment(): void\\
++ update(remote\_clock: Dict): void\\
++ is\_causally\_aligned(t1, t2): bool
+};
+
+\node[c4code, text width=5.6cm] (conf) at (-3.6,-3.5) {
 \textbf{\ttfamily ConfidenceBasedFusion}\\[2pt]
-\rule{5.2cm}{0.3pt}\\
-- seuil: float\\
-\rule{5.2cm}{0.3pt}\\
+\rule{5.4cm}{0.3pt}\\
+- seuil: float\\[2pt]
+\rule{5.4cm}{0.3pt}\\
 + combine(resultA, resultB): Result
 };
 
-\node[c4code, below right=1.6cm and -1.0cm of iface, text width=5.4cm] (tiny) {
+\node[c4code, text width=5.6cm] (tiny) at (3.6,-3.5) {
 \textbf{\ttfamily TinyValidatedFusion}\\[2pt]
-\rule{5.2cm}{0.3pt}\\
+\rule{5.4cm}{0.3pt}\\
 - tinyData: TinyObjectData\\
-\rule{5.2cm}{0.3pt}\\
+- clockManager: VectorClockManager\\[2pt]
+\rule{5.4cm}{0.3pt}\\
 + combine(resultA, resultB): Result
 };
 
-\node[c4code, below=4cm of iface, text width=5.8cm] (ens) {
+\node[c4code, text width=6.2cm] (ens) at (0,-7.2) {
 \textbf{\ttfamily EnsembleService}\\[2pt]
-\rule{5.6cm}{0.3pt}\\
+\rule{6.0cm}{0.3pt}\\
 - strategy: IFusionStrategy\\
-\rule{5.6cm}{0.3pt}\\
+- clockManager: VectorClockManager\\[2pt]
+\rule{6.0cm}{0.3pt}\\
 + setStrategy(s: IFusionStrategy): void\\
 + evaluate(results: List\textless{}Result\textgreater{}): Result
 };
 
-\draw[c4arrow, dashed] (conf) -- node[above,sloped,font=\scriptsize]{implémente} (iface);
-\draw[c4arrow, dashed] (tiny) -- node[above,sloped,font=\scriptsize]{implémente} (iface);
-\draw[c4arrow] (ens.north) -- node[right,font=\scriptsize]{utilise} (iface.south);
+\draw[c4arrow, dashed] (conf.north) -- node[above,sloped,font=\scriptsize]{implémente} (iface.south);
+\draw[c4arrow, dashed] (tiny.north) -- node[above,sloped,font=\scriptsize]{implémente} (iface.south);
+\draw[c4arrow] (ens.north) -- node[left,font=\scriptsize]{utilise} (iface.south);
+\draw[c4arrow] (tiny.east) -- ++(1.5,0) |- node[right,pos=0.25,font=\scriptsize]{synchronise via} (clock.south);
 
-\end{tikzpicture}
-\caption{Niveau 4 --- Diagramme de classes : patron Strategy pour l'opérateur de fusion \(\otimes\)}
+\end{tikzpicture}}
+\caption{Niveau 4 --- Diagramme de classes : Patron Strategy et composant d'Horloge Distribuée}
 \end{figure}
-\noindent \textbf{Extrait de code (Python) correspondant} :
+
+\newpage
+\noindent \textbf{Extrait de code (Python) : Synchronisation distribuée et fusion :}
 
 \begin{lstlisting}[language=Python]
 from abc import ABC, abstractmethod
+from typing import Dict
+
+class VectorClockManager:
+    """Gere l'horloge vectorielle pour ordonner les evenements dans le systeme reparti."""
+    def __init__(self, node_id: str):
+        self.node_id = node_id
+        self.clock: Dict[str, int] = {node_id: 0}
+
+    def increment(self):
+        self.clock[self.node_id] = self.clock.get(self.node_id, 0) + 1
+
+    def update(self, remote_clock: Dict[str, int]):
+        """Met a jour l'horloge locale selon la regle de Lamport/Vector Clocks."""
+        for node, count in remote_clock.items():
+            self.clock[node] = max(self.clock.get(node, 0), count)
+        self.increment()
+
+    def is_causally_aligned(self, clock_a: Dict[str, int], clock_b: Dict[str, int], max_drift: int = 2) -> bool:
+        """Verifie si deux evenements (Tiny IoT vs Inferred Frame) sont temporellement proches."""
+        diff = abs(clock_a.get(self.node_id, 0) - clock_b.get(self.node_id, 0))
+        return diff <= max_drift
+
 
 class IFusionStrategy(ABC):
     @abstractmethod
     def combine(self, result_a, result_b):
-        """Implemente l'operateur d'evaluation S (associatif, monotone)."""
         raise NotImplementedError
 
 
-class ConfidenceBasedFusion(IFusionStrategy):
-    def __init__(self, seuil: float = 0.6):
-        self.seuil = seuil
-
-    def combine(self, result_a, result_b):
-        return result_a if result_a.confidence >= result_b.confidence else result_b
-
-
 class TinyValidatedFusion(IFusionStrategy):
-    def __init__(self, tiny_data):
+    def __init__(self, tiny_data, clock_manager: VectorClockManager):
         self.tiny_data = tiny_data
+        self.clock_manager = clock_manager
 
     def combine(self, result_a, result_b):
-        # Priorite absolue a la donnee Tiny (verite terrain)
+        # Verification de la synchronisation causale avec les objets Tiny sans OS
         if self.tiny_data.is_available():
-            return self.tiny_data.to_result()
+            if self.clock_manager.is_causally_aligned(result_a.clock, self.tiny_data.clock):
+                return self.tiny_data.to_result() # Priorite a la verite terrain Tiny
+        
+        # En cas de desynchronisation ou d'absence Tiny, arbitrage par score de confiance
         return result_a if result_a.confidence >= result_b.confidence else result_b
 
 
 class EnsembleService:
-    def __init__(self, strategy: IFusionStrategy):
+    def __init__(self, strategy: IFusionStrategy, node_id: str):
         self.strategy = strategy
-
-    def set_strategy(self, strategy: IFusionStrategy):
-        self.strategy = strategy
+        self.clock_manager = VectorClockManager(node_id)
 
     def evaluate(self, results: list):
+        if not results:
+            return None
+        self.clock_manager.increment()
         fused = results[0]
         for r in results[1:]:
             fused = self.strategy.combine(fused, r)
         return fused
 \end{lstlisting}
 
-Ce patron permet de changer la stratégie de
-fusion (basée sur la confiance, ou priorisant la donnée Tiny) sans modifier
-le \texttt{EnsembleService}, contrairement à la fonction \texttt{Choose()}
-codée en dur dans l'algorithme \texttt{MSParallelCollectiveManager} de
-l'article original.
 % =====================================================================
 \section{Pistes de validation de l'architecture proposée}
 
 \begin{itemize}
-    \item \textbf{Scénarios de qualité (style ATAM)} : rejouer les
-    scénarios de l'article (latence temps réel, précision) comme critères
-    d'acceptation de l'architecture cible.
-    \item \textbf{Prototype + benchmark comparatif} : reproduire les
-    mesures des Tableaux 1 à 3 de l'article (taux de détection, faux
-    positifs) sur la nouvelle architecture pour vérifier qu'elle conserve
-    les gains de précision du système Tiny d'origine.
-    \item \textbf{Tests de contrat} (Pact) entre la Gateway et chaque
-    microservice, pour garantir la stabilité des interfaces définies au
-    niveau conteneur.
-    \item \textbf{Tests de charge et de chaos} (Locust, Chaos Mesh) pour
-    valider la scalabilité horizontale et la résilience, absentes du
-    système original.
-    \item \textbf{Revue croisée des diagrammes} : présenter les niveaux
-    Contexte/Conteneurs aux parties prenantes métier, Composants/Code aux
-    développeurs, et vérifier la cohérence verticale entre les niveaux.
+    \item \textbf{Validation de la couche Middleware Bare-Metal} : Tester le temps de conversion et d'ingestion des paquets CoAP/MQTT issus des microcontrôleurs Tiny vers le broker de messages.
+    \item \textbf{Tests de désynchronisation d'horloge} : Simuler des pertes de paquets et de la latence réseau (ex: Chaos Mesh) pour vérifier que le composant \texttt{VectorClockManager} réaligne correctement les événements Tiny avec le traitement vidéo.
+    \item \textbf{Scénarios de qualité ATAM} : Évaluer la latence de bout en bout (Edge $\rightarrow$ Server $\rightarrow$ Decision) pour s'assurer du respect des contraintes temps réel.
+    \item \textbf{Tests de charge et de scalabilité} : Valider l'autoscaling horizontal (HPA Kubernetes) des conteneurs d'inférence lors de pics de requêtes.
 \end{itemize}
 
+% =====================================================================
 \section{Conclusion}
-En conclusion, l'utilisation du modèle C4 a permis de transformer le prototype initial en une architecture microservices claire, solide et scalable. En découpant le système en services autonomes et découpés, l'application devient plus simple à maintenir et à faire évoluer. Ce découplage apporte une scalabilité horizontale, une gestion formalisée des versions de modèles ainsi que des mécanismes de tolérance aux pannes qui faisaient défaut dans la proposition initiale. Enfin, l'intégration de patrons de conception comme le modèle Strategy rend le système flexible, lui permettant d'adapter facilement ses règles de fusion et d'entraînement sans tout dérégler.
+
+L'application du \textbf{modèle C4} combinée aux principes des \textbf{systèmes répartis} a permis d'évoluer d'un prototype monolithique local vers une architecture distribuée, robuste et prête pour le déploiement réel. 
+
+En prenant en compte la contrainte matérielle majeure du système --- à savoir l'absence d'OS sur les objets Tiny (exécution bare-metal) --- nous avons réintégré une couche middleware distribuée et un composant de \textbf{synchronisation temporelle (horloges vectorielles)}. Cette approche comble le fossé historique de communication entre les machines sans OS et l'infrastructure serveur. Enfin, le découplage en microservices et l'usage de patrons de conception flexibles (comme le patron Strategy) garantissent une scalabilité horizontale, une tolérance aux pannes efficace et une maintenance simplifiée du système global.
 
 \end{document}
